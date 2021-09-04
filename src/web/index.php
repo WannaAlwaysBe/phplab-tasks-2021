@@ -3,12 +3,22 @@ require_once './functions.php';
 
 $airports = require './airports.php';
 
+define('AIRPORTS_PER_PAGE', 20);
+$currentPage = 1;
+
 // Filtering
 /**
  * Here you need to check $_GET request if it has any filtering
  * and apply filtering by First Airport Name Letter and/or Airport State
  * (see Filtering tasks 1 and 2 below)
  */
+if (key_exists('filter_by_first_letter', $_GET)) {
+    $airports = filterByFirstLetter($airports);
+}
+
+if (key_exists('filter_by_state', $_GET)) {
+    $airports = filterByState($airports);
+}
 
 // Sorting
 /**
@@ -16,6 +26,11 @@ $airports = require './airports.php';
  * and apply sorting
  * (see Sorting task below)
  */
+if (key_exists('sort', $_GET)) {
+    $airports = sortByParametr($airports);
+}
+
+$chunksAmount = (int)ceil(count($airports) / AIRPORTS_PER_PAGE);
 
 // Pagination
 /**
@@ -23,6 +38,11 @@ $airports = require './airports.php';
  * and apply pagination logic
  * (see Pagination task below)
  */
+if (key_exists('page', $_GET)) {
+    $currentPage = $_GET['page'];
+}
+
+$airports = paginator($airports, AIRPORTS_PER_PAGE, $currentPage);
 ?>
 <!doctype html>
 <html lang="en">
@@ -53,7 +73,7 @@ $airports = require './airports.php';
         Filter by first letter:
 
         <?php foreach (getUniqueFirstLetters(require './airports.php') as $letter): ?>
-            <a href="#"><?= $letter ?></a>
+            <a href="<?= urlCreator('filter_by_first_letter', $letter) ?>"><?= $letter ?></a>
         <?php endforeach; ?>
 
         <a href="/" class="float-right">Reset all filters</a>
@@ -72,12 +92,12 @@ $airports = require './airports.php';
     <table class="table">
         <thead>
         <tr>
-            <th scope="col"><a href="#">Name</a></th>
-            <th scope="col"><a href="#">Code</a></th>
-            <th scope="col"><a href="#">State</a></th>
-            <th scope="col"><a href="#">City</a></th>
-            <th scope="col">Address</th>
-            <th scope="col">Timezone</th>
+            <th scope="col"><a href="<?= urlCreator('sort', 'name') ?>">Name</a></th>
+            <th scope="col"><a href="<?= urlCreator('sort', 'code') ?>">Code</a></th>
+            <th scope="col"><a href="<?= urlCreator('sort', 'state') ?>">State</a></th>
+            <th scope="col"><a href="<?= urlCreator('sort', 'city') ?>">City</a></th>
+            <th scope="col"><a href="<?= urlCreator('sort', 'address') ?>">Address</th>
+            <th scope="col"><a href="<?= urlCreator('sort', 'timezone') ?>">Timezone</th>
         </tr>
         </thead>
         <tbody>
@@ -95,7 +115,7 @@ $airports = require './airports.php';
         <tr>
             <td><?= $airport['name'] ?></td>
             <td><?= $airport['code'] ?></td>
-            <td><a href="#"><?= $airport['state'] ?></a></td>
+            <td><a href="<?= urlCreator('filter_by_state', $airport['state']) ?>"><?= $airport['state'] ?></a></td>
             <td><?= $airport['city'] ?></td>
             <td><?= $airport['address'] ?></td>
             <td><?= $airport['timezone'] ?></td>
@@ -115,9 +135,13 @@ $airports = require './airports.php';
     -->
     <nav aria-label="Navigation">
         <ul class="pagination justify-content-center">
-            <li class="page-item active"><a class="page-link" href="#">1</a></li>
-            <li class="page-item"><a class="page-link" href="#">2</a></li>
-            <li class="page-item"><a class="page-link" href="#">3</a></li>
+            <?php for ($page = 1; $page <= $chunksAmount; $page++): ?>
+                <?php if ($page == $currentPage): ?>
+                    <li class="page-item active"><a class="page-link" href="<?= urlCreator('page', $page) ?>"><?= $page ?></a></li>
+                <?php else: ?>
+                    <li class="page-item"><a class="page-link" href="<?= urlCreator('page', $page) ?>"><?= $page ?></a></li>
+                <?php endif; ?>
+            <?php endfor; ?>
         </ul>
     </nav>
 

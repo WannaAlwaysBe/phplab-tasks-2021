@@ -1,14 +1,49 @@
 <?php
+/** @var \PDO $pdo */
+require_once './pdo_ini.php';
+
+define('AIRPORTS_PER_PAGE', 20);
+$currentPage = 1;
+$executionParams = array();
+$filterByFirstLetter = '';
+$filterByState = '';
+$sortByParametr = '';
+
 /**
- * Connect to DB
+ * @param string $task
+ * @param string $parametr
+ * @return string 
  */
+function urlCreator(string $task, string $parametr): string
+{
+    $request = $_GET;
+    $request[$task] = $parametr;
+
+    if (
+        $task == 'filter_by_first_letter' 
+        || $task == 'filter_by_state'
+        ) {
+        $request['page'] = 1;
+    }
+
+    return '?' . http_build_query($request, '', '&');
+}
 
 /**
  * SELECT the list of unique first letters using https://www.w3resource.com/mysql/string-functions/mysql-left-function.php
  * and https://www.w3resource.com/sql/select-statement/queries-with-distinct.php
  * and set the result to $uniqueFirstLetters variable
  */
-$uniqueFirstLetters = ['A', 'B', 'C'];
+$sql = <<<'SQL'
+    SELECT DISTINCT LEFT(name, 1) AS letter
+    FROM airports
+    ORDER BY letter;
+SQL;
+
+$uniqueFirstLetters = $pdo->prepare($sql);
+$uniqueFirstLetters->setFetchMode(\PDO::FETCH_ASSOC);
+$uniqueFirstLetters->execute();
+$uniqueFirstLetters = $uniqueFirstLetters->fetchAll();
 
 // Filtering
 /**
@@ -20,6 +55,31 @@ $uniqueFirstLetters = ['A', 'B', 'C'];
  * For filtering by state you will need to JOIN states table and check if states.name = A
  * where A - requested filter value
  */
+if (key_exists('filter_by_first_letter', $_GET)) {
+    $filterByFirstLetter = "WHERE airports.name LIKE CONCAT(:letter,'%')";
+    $executionParams['letter'] = $_GET['filter_by_first_letter'];
+}
+
+if (key_exists('filter_by_state', $_GET)) {
+    $filterByState = !empty($filterByFirstLetter) ? " AND states.name = :state" : "WHERE states.name = :state";
+    $executionParams['state'] = $_GET['filter_by_state'];
+}
+
+// Query select for getting info about len of our airports array
+$sql = <<<"SQL"
+    SELECT COUNT(*) AS query_len
+    FROM airports
+    LEFT JOIN cities ON airports.city_id = cities.id
+    LEFT JOIN states ON airports.state_id = states.id
+    $filterByFirstLetter
+    $filterByState;
+SQL;
+
+$queryLen = $pdo->prepare($sql);
+$queryLen->setFetchMode(\PDO::FETCH_ASSOC);
+$queryLen->execute($executionParams);
+$queryLen = $queryLen->fetch();
+$chunksAmount = (int)ceil($queryLen['query_len'] / AIRPORTS_PER_PAGE);
 
 // Sorting
 /**
@@ -30,6 +90,9 @@ $uniqueFirstLetters = ['A', 'B', 'C'];
  * For sorting use ORDER BY A
  * where A - requested filter value
  */
+if (key_exists('sort', $_GET)) {
+    $sortByParametr = "ORDER BY " . $_GET['sort'];
+}
 
 // Pagination
 /**
@@ -40,6 +103,11 @@ $uniqueFirstLetters = ['A', 'B', 'C'];
  * For pagination use LIMIT
  * To get the number of all airports matched by filter use COUNT(*) in the SELECT statement with all filters applied
  */
+if (key_exists('page', $_GET)) {
+    $currentPage = $_GET['page'];
+}
+$offset = ($currentPage-1) * AIRPORTS_PER_PAGE;
+$paginate = sprintf("LIMIT %d, %d", $offset, AIRPORTS_PER_PAGE);
 
 /**
  * Build a SELECT query to DB with all filters / sorting / pagination
@@ -47,7 +115,21 @@ $uniqueFirstLetters = ['A', 'B', 'C'];
  *
  * For city_name and state_name fields you can use alias https://www.mysqltutorial.org/mysql-alias/
  */
-$airports = [];
+$sql = <<<"SQL"
+    SELECT airports.name, airports.code, cities.name as city_name, states.name as state_name, airports.address, airports.timezone 
+    FROM airports
+    LEFT JOIN cities ON airports.city_id = cities.id
+    LEFT JOIN states ON airports.state_id = states.id
+    $filterByFirstLetter
+    $filterByState
+    $sortByParametr
+    $paginate;
+SQL;
+
+$airports = $pdo->prepare($sql);
+$airports->setFetchMode(\PDO::FETCH_ASSOC);
+$airports->execute($executionParams);
+$airports = $airports->fetchAll();
 ?>
 <!doctype html>
 <html lang="en">
@@ -78,7 +160,7 @@ $airports = [];
         Filter by first letter:
 
         <?php foreach ($uniqueFirstLetters as $letter): ?>
-            <a href="#"><?= $letter ?></a>
+            <a href="<?= urlCreator('filter_by_first_letter', $letter['letter']) ?>"><?= $letter['letter'] ?></a>
         <?php endforeach; ?>
 
         <a href="/" class="float-right">Reset all filters</a>
@@ -97,12 +179,12 @@ $airports = [];
     <table class="table">
         <thead>
         <tr>
-            <th scope="col"><a href="#">Name</a></th>
-            <th scope="col"><a href="#">Code</a></th>
-            <th scope="col"><a href="#">State</a></th>
-            <th scope="col"><a href="#">City</a></th>
-            <th scope="col">Address</th>
-            <th scope="col">Timezone</th>
+            <th scope="col"><a href="<?= urlCreator('sort', 'name') ?>">Name</a></th>
+            <th scope="col"><a href="<?= urlCreator('sort', 'code') ?>">Code</a></th>
+            <th scope="col"><a href="<?= urlCreator('sort', 'state_name') ?>">State</a></th>
+            <th scope="col"><a href="<?= urlCreator('sort', 'city_name') ?>">City</a></th>
+            <th scope="col"><a href="<?= urlCreator('sort', 'address') ?>">Address</th>
+            <th scope="col"><a href="<?= urlCreator('sort', 'timezone') ?>">Timezone</th>
         </tr>
         </thead>
         <tbody>
@@ -120,7 +202,7 @@ $airports = [];
         <tr>
             <td><?= $airport['name'] ?></td>
             <td><?= $airport['code'] ?></td>
-            <td><a href="#"><?= $airport['state_name'] ?></a></td>
+            <td><a href="<?= urlCreator('filter_by_state', $airport['state_name']) ?>"><?= $airport['state_name'] ?></a></td>
             <td><?= $airport['city_name'] ?></td>
             <td><?= $airport['address'] ?></td>
             <td><?= $airport['timezone'] ?></td>
@@ -140,11 +222,14 @@ $airports = [];
     -->
     <nav aria-label="Navigation">
         <ul class="pagination justify-content-center">
-            <li class="page-item active"><a class="page-link" href="#">1</a></li>
-            <li class="page-item"><a class="page-link" href="#">2</a></li>
-            <li class="page-item"><a class="page-link" href="#">3</a></li>
+            <?php for ($page = 1; $page <= $chunksAmount; $page++): ?>
+                <?php if ($page == $currentPage): ?>
+                    <li class="page-item active"><a class="page-link" href="<?= urlCreator('page', $page) ?>"><?= $page ?></a></li>
+                <?php else: ?>
+                    <li class="page-item"><a class="page-link" href="<?= urlCreator('page', $page) ?>"><?= $page ?></a></li>
+                <?php endif; ?>
+            <?php endfor; ?>
         </ul>
     </nav>
-
 </main>
 </html>
